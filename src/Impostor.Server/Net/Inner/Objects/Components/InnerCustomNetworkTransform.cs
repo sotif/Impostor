@@ -1,9 +1,8 @@
 ﻿using System.Numerics;
-using System.Threading.Tasks;
 using Impostor.Api;
-using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Messages;
+using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Net.State;
 using Microsoft.Extensions.Logging;
 
@@ -11,11 +10,7 @@ namespace Impostor.Server.Net.Inner.Objects.Components
 {
     internal partial class InnerCustomNetworkTransform : InnerNetObject
     {
-        private static readonly FloatRange XRange = new FloatRange(-40f, 40f);
-        private static readonly FloatRange YRange = new FloatRange(-40f, 40f);
-
         private readonly ILogger<InnerCustomNetworkTransform> _logger;
-        private readonly InnerPlayerControl _playerControl;
         private readonly Game _game;
 
         private ushort _lastSequenceId;
@@ -25,8 +20,19 @@ namespace Impostor.Server.Net.Inner.Objects.Components
         public InnerCustomNetworkTransform(ILogger<InnerCustomNetworkTransform> logger, InnerPlayerControl playerControl, Game game)
         {
             _logger = logger;
-            _playerControl = playerControl;
             _game = game;
+
+            Rpcs[RpcCalls.SnapTo] = Rpc.Sync((_, _, reader) =>
+            {
+                if (!playerControl.PlayerInfo.IsImpostor)
+                {
+                    throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SnapTo)} as crewmate");
+                }
+
+                Rpc21SnapTo.Deserialize(reader, out var position, out var minSid);
+
+                SnapTo(position, minSid);
+            });
         }
 
         private static bool SidGreaterThan(ushort newSid, ushort prevSid)
@@ -38,56 +44,13 @@ namespace Impostor.Server.Net.Inner.Objects.Components
                 : newSid > prevSid || newSid <= num;
         }
 
-        private static void WriteVector2(IMessageWriter writer, Vector2 vec)
-        {
-            writer.Write((ushort)(XRange.ReverseLerp(vec.X) * (double) ushort.MaxValue));
-            writer.Write((ushort)(YRange.ReverseLerp(vec.Y) * (double) ushort.MaxValue));
-        }
-
-        private static Vector2 ReadVector2(IMessageReader reader)
-        {
-            var v1 = reader.ReadUInt16() / (float) ushort.MaxValue;
-            var v2 = reader.ReadUInt16() / (float) ushort.MaxValue;
-
-            return new Vector2(XRange.Lerp(v1), YRange.Lerp(v2));
-        }
-
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call, IMessageReader reader)
-        {
-            if (call == RpcCalls.SnapTo)
-            {
-                if (!sender.IsOwner(this))
-                {
-                    throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SnapTo)} to an unowned {nameof(InnerPlayerControl)}");
-                }
-
-                if (target != null)
-                {
-                    throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SnapTo)} to a specific player instead of broadcast");
-                }
-
-                if (!sender.Character.PlayerInfo.IsImpostor)
-                {
-                    throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SnapTo)} as crewmate");
-                }
-
-                SnapTo(ReadVector2(reader), reader.ReadUInt16());
-            }
-            else
-            {
-                _logger.LogWarning("{0}: Unknown rpc call {1}", nameof(InnerCustomNetworkTransform), call);
-            }
-
-            return default;
-        }
-
         public override bool Serialize(IMessageWriter writer, bool initialState)
         {
             if (initialState)
             {
                 writer.Write(_lastSequenceId);
-                WriteVector2(writer, _targetSyncPosition);
-                WriteVector2(writer, _targetSyncVelocity);
+                writer.Write(_targetSyncPosition);
+                writer.Write(_targetSyncVelocity);
                 return true;
             }
 
@@ -95,8 +58,8 @@ namespace Impostor.Server.Net.Inner.Objects.Components
             _lastSequenceId++;
 
             writer.Write(_lastSequenceId);
-            WriteVector2(writer, _targetSyncPosition);
-            WriteVector2(writer, _targetSyncVelocity);
+            writer.Write(_targetSyncPosition);
+            writer.Write(_targetSyncVelocity);
             return true;
         }
 
@@ -107,8 +70,8 @@ namespace Impostor.Server.Net.Inner.Objects.Components
             if (initialState)
             {
                 _lastSequenceId = sequenceId;
-                _targetSyncPosition = ReadVector2(reader);
-                _targetSyncVelocity = ReadVector2(reader);
+                _targetSyncPosition = reader.ReadVector2();
+                _targetSyncVelocity = reader.ReadVector2();
             }
             else
             {
@@ -128,8 +91,8 @@ namespace Impostor.Server.Net.Inner.Objects.Components
                 }
 
                 _lastSequenceId = sequenceId;
-                _targetSyncPosition = ReadVector2(reader);
-                _targetSyncVelocity = ReadVector2(reader);
+                _targetSyncPosition = reader.ReadVector2();
+                _targetSyncVelocity = reader.ReadVector2();
             }
         }
 

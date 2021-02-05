@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
-using Impostor.Server.Net.State;
+using Impostor.Api.Net.Messages.Rpcs;
 using Microsoft.Extensions.Logging;
 
 namespace Impostor.Server.Net.Inner.Objects.Components
@@ -19,32 +18,16 @@ namespace Impostor.Server.Net.Inner.Objects.Components
         {
             _logger = logger;
             _votes = new Dictionary<int, int[]>();
-        }
 
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call, IMessageReader reader)
-        {
-            if (call != RpcCalls.AddVote)
+            Rpcs[RpcCalls.AddVote] = Rpc.Sync((sender, _, reader) =>
             {
-                _logger.LogWarning("{0}: Unknown rpc call {1}", nameof(InnerVoteBanSystem), call);
-                return default;
-            }
+                Rpc26AddVote.Deserialize(reader, out var clientId, out var targetClientId);
 
-            var clientId = reader.ReadInt32();
-            if (clientId != sender.Client.Id)
-            {
-                throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.AddVote)} as other client");
-            }
-
-            if (target != null)
-            {
-                throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.CastVote)} to wrong destinition, must be broadcast");
-            }
-
-            var targetClientId = reader.ReadInt32();
-
-            // TODO: Use.
-
-            return default;
+                if (clientId != sender.Client.Id)
+                {
+                    throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.AddVote)} as other client");
+                }
+            });
         }
 
         public override bool Serialize(IMessageWriter writer, bool initialState)

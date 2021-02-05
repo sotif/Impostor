@@ -1,12 +1,11 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Impostor.Api;
-using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
+using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Net.Inner.Objects.Components;
 using Impostor.Server.Net.State;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,68 +16,31 @@ namespace Impostor.Server.Net.Inner.Objects
     internal partial class InnerGameData : InnerNetObject, IInnerGameData
     {
         private readonly ILogger<InnerGameData> _logger;
-        private readonly Game _game;
         private readonly ConcurrentDictionary<byte, InnerPlayerInfo> _allPlayers;
 
         public InnerGameData(ILogger<InnerGameData> logger, Game game, IServiceProvider serviceProvider)
         {
             _logger = logger;
-            _game = game;
             _allPlayers = new ConcurrentDictionary<byte, InnerPlayerInfo>();
 
             Components.Add(this);
             Components.Add(ActivatorUtilities.CreateInstance<InnerVoteBanSystem>(serviceProvider));
-        }
 
-        public int PlayerCount => _allPlayers.Count;
-
-        public IReadOnlyDictionary<byte, InnerPlayerInfo> Players => _allPlayers;
-
-        public InnerPlayerInfo? GetPlayerById(byte id)
-        {
-            if (id == byte.MaxValue)
-            {
-                return null;
-            }
-
-            return _allPlayers.TryGetValue(id, out var player) ? player : null;
-        }
-
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call, IMessageReader reader)
-        {
-            switch (call)
-            {
-                case RpcCalls.SetTasks:
+            Rpcs[RpcCalls.SetTasks] = Rpc.Sync(
+                (_, _, reader) =>
                 {
-                    if (!sender.IsHost)
-                    {
-                        throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SetTasks)} but was not a host");
-                    }
-
-                    if (target != null)
-                    {
-                        throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SetTasks)} to a specific player instead of broadcast");
-                    }
-
-                    var playerId = reader.ReadByte();
-                    var taskTypeIds = reader.ReadBytesAndSize();
-
+                    Rpc29SetTasks.Deserialize(reader, out var playerId, out var taskTypeIds);
                     SetTasks(playerId, taskTypeIds);
-                    break;
-                }
-
-                case RpcCalls.UpdateGameData:
+                },
+                new Rpc.RpcOptions
                 {
-                    if (!sender.IsHost)
-                    {
-                        throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SetTasks)} but was not a host");
-                    }
+                    CheckOwnership = false, RequireHost = true,
+                }
+            );
 
-                    if (target != null)
-                    {
-                        throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.SetTasks)} to a specific player instead of broadcast");
-                    }
-
+            Rpcs[RpcCalls.UpdateGameData] = Rpc.Sync(
+                (_, _, reader) =>
+                {
                     while (reader.Position < reader.Length)
                     {
                         using var message = reader.ReadMessage();
@@ -99,18 +61,26 @@ namespace Impostor.Server.Net.Inner.Objects
                             }
                         }
                     }
-
-                    break;
-                }
-
-                default:
+                },
+                new Rpc.RpcOptions
                 {
-                    _logger.LogWarning("{0}: Unknown rpc call {1}", nameof(InnerGameData), call);
-                    break;
+                    CheckOwnership = false, RequireHost = true,
                 }
+            );
+        }
+
+        public int PlayerCount => _allPlayers.Count;
+
+        public IReadOnlyDictionary<byte, InnerPlayerInfo> Players => _allPlayers;
+
+        public InnerPlayerInfo? GetPlayerById(byte id)
+        {
+            if (id == byte.MaxValue)
+            {
+                return null;
             }
 
-            return default;
+            return _allPlayers.TryGetValue(id, out var player) ? player : null;
         }
 
         public override bool Serialize(IMessageWriter writer, bool initialState)

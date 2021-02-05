@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Innersloth;
+using Impostor.Api.Net.Inner;
 using Impostor.Api.Net.Messages;
 using Impostor.Api.Net.Messages.S2C;
 using Impostor.Hazel;
@@ -246,7 +247,10 @@ namespace Impostor.Server.Net.State
                         var netId = reader.ReadPackedUInt32();
                         if (_allObjectsFast.TryGetValue(netId, out var obj))
                         {
-                            await obj.HandleRpc(sender, target, (RpcCalls) reader.ReadByte(), reader);
+                            if (!await obj.HandleRpc(sender, target, (RpcCalls)reader.ReadByte(), reader))
+                            {
+                                return false;
+                            }
                         }
                         else
                         {
@@ -435,15 +439,15 @@ namespace Impostor.Server.Net.State
             obj.NetId = uint.MaxValue;
         }
 
-        public T FindObjectByNetId<T>(uint netId)
-            where T : InnerNetObject
+        public T? FindObjectByNetId<T>(uint netId)
+            where T : IInnerNetObject
         {
             if (_allObjectsFast.TryGetValue(netId, out var obj))
             {
-                return (T) obj;
+                return (T)(IInnerNetObject)obj;
             }
 
-            return null;
+            return default;
         }
     }
 }

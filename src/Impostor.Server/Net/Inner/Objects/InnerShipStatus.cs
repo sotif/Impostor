@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
+using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Net.Inner.Objects.Systems;
 using Impostor.Server.Net.Inner.Objects.Systems.ShipStatus;
 using Impostor.Server.Net.State;
@@ -37,21 +37,13 @@ namespace Impostor.Server.Net.Inner.Objects
 
             _systems.Add(SystemTypes.Sabotage, new SabotageSystemType(new[]
             {
-                (IActivatable)_systems[SystemTypes.Comms],
-                (IActivatable)_systems[SystemTypes.Reactor],
-                (IActivatable)_systems[SystemTypes.LifeSupp],
-                (IActivatable)_systems[SystemTypes.Electrical],
+                (IActivatable)_systems[SystemTypes.Comms], (IActivatable)_systems[SystemTypes.Reactor], (IActivatable)_systems[SystemTypes.LifeSupp], (IActivatable)_systems[SystemTypes.Electrical],
             }));
 
             Components.Add(this);
-        }
 
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call,
-            IMessageReader reader)
-        {
-            switch (call)
-            {
-                case RpcCalls.CloseDoorsOfType:
+            Rpcs[RpcCalls.CloseDoorsOfType] = Rpc.Sync(
+                async (sender, target, reader) =>
                 {
                     if (target == null || !target.IsHost)
                     {
@@ -63,39 +55,34 @@ namespace Impostor.Server.Net.Inner.Objects
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.CloseDoorsOfType)} as crewmate");
                     }
 
-                    var systemType = (SystemTypes)reader.ReadByte();
-
-                    break;
+                    Rpc27CloseDoorsOfType.Deserialize(reader, out var systemType);
+                },
+                new Rpc.RpcOptions
+                {
+                    CheckOwnership = false, TargetType = Rpc.RpcTargetType.Target,
                 }
+            );
 
-                case RpcCalls.RepairSystem:
+            Rpcs[RpcCalls.RepairSystem] = Rpc.Sync(
+                async (sender, target, reader) =>
                 {
                     if (target == null || !target.IsHost)
                     {
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.RepairSystem)} to wrong destinition, must be host");
                     }
 
-                    var systemType = (SystemTypes)reader.ReadByte();
+                    Rpc28RepairSystem.Deserialize(reader, game, out var systemType, out var player, out var amount);
+
                     if (systemType == SystemTypes.Sabotage && !sender.Character.PlayerInfo.IsImpostor)
                     {
                         throw new ImpostorCheatException($"Client sent {nameof(RpcCalls.RepairSystem)} for {systemType} as crewmate");
                     }
-
-                    var player = reader.ReadNetObject<InnerPlayerControl>(_game);
-                    var amount = reader.ReadByte();
-
-                    // TODO: Modify data (?)
-                    break;
-                }
-
-                default:
+                },
+                new Rpc.RpcOptions
                 {
-                    _logger.LogWarning("{0}: Unknown rpc call {1}", nameof(InnerShipStatus), call);
-                    break;
+                    CheckOwnership = false, TargetType = Rpc.RpcTargetType.Target,
                 }
-            }
-
-            return default;
+            );
         }
 
         public override bool Serialize(IMessageWriter writer, bool initialState)

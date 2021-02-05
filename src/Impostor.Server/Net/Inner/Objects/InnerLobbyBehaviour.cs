@@ -1,9 +1,7 @@
-﻿using System.Threading.Tasks;
-using Impostor.Api.Games;
+﻿using Impostor.Api.Games;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages;
-using Impostor.Server.Net.State;
 
 namespace Impostor.Server.Net.Inner.Objects
 {
@@ -16,11 +14,6 @@ namespace Impostor.Server.Net.Inner.Objects
             _game = game;
 
             Components.Add(this);
-        }
-
-        public override ValueTask HandleRpc(ClientPlayer sender, ClientPlayer? target, RpcCalls call, IMessageReader reader)
-        {
-            throw new System.NotImplementedException();
         }
 
         public override bool Serialize(IMessageWriter writer, bool initialState)
